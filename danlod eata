@@ -1,0 +1,69 @@
+import asyncio
+import re
+import os
+import pandas as pd
+from telethon import TelegramClient
+
+# --- تنظیمات اتصال ---
+api_id = 123456  # API ID خود را وارد کنید
+api_hash = 'your_api_hash'  # API Hash خود را وارد کنید
+channel_username = 'your_eitaa_channel'  # نام کاربری کانال
+
+# پوشه ذخیره تصاویر
+IMAGE_FOLDER = 'product_images'
+if not os.path.exists(IMAGE_FOLDER):
+    os.makedirs(IMAGE_FOLDER)
+
+async def main():
+    client = TelegramClient('eitaa_session', api_id, api_hash)
+    await client.start()
+    
+    products = []
+    
+    print(f"در حال بررسی کانال {channel_username}...")
+
+    async for message in client.iter_messages(channel_username, limit=50):
+        # استخراج متن
+        text = message.text or ""
+        
+        # استخراج قیمت (الگوی منعطف برای قیمت‌های مختلف)
+        price_match = re.search(r'(قیمت[:\s]*[\d,]+|[\d,]+\s*تومان)', text)
+        price = price_match.group(0) if price_match else "نامشخص"
+        
+        # عنوان محصول (خط اول)
+        lines = text.split('\n')
+        title = lines[0].strip() if lines and lines[0].strip() else "بدون عنوان"
+        
+        # مدیریت عکس
+        image_path = "بدون عکس"
+        if message.photo:
+            # نام‌گذاری عکس بر اساس ID پیام برای جلوگیری از تکرار
+            filename = f"img_{message.id}.jpg"
+            full_path = os.path.join(IMAGE_FOLDER, filename)
+            
+            print(f"در حال دانلود عکس برای: {title}")
+            await message.download_media(file=full_path)
+            image_path = full_path
+
+        products.append({
+            'عنوان': title,
+            'قیمت': price,
+            'توضیحات': text.replace('\n', ' '), # حذف خط جدید برای تمیز بودن اکسل
+            'مسیر عکس': image_path,
+            'تاریخ': message.date
+        })
+            
+    # تبدیل به DataFrame و ذخیره در اکسل
+    if products:
+        df = pd.DataFrame(products)
+        output_file = 'eitaa_products_with_images.xlsx'
+        df.to_excel(output_file, index=False)
+        print(f"\n✅ عملیات تمام شد!")
+        print(f"📊 تعداد محصولات یافت شده: {len(products)}")
+        print(f"📁 فایل اکسل: {output_file}")
+        print(f"🖼️ پوشه تصاویر: {IMAGE_FOLDER}")
+    else:
+        print("❌ هیچ محصولی پیدا نشد.")
+
+if __name__ == '__main__':
+    asyncio.run(main())
